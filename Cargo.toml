@@ -1,0 +1,14 @@
+[package]
+name = "umash"
+version = "0.1.2"
+authors = ["Backtrace I/O <team@backtrace.io>"]
+edition = "2018"
+license = "MIT"
+description = "Idiomatic API for the umash hash/fingerprint function"
+keywords = ["hash", "fingerprint", "umash"]
+categories = ["api-bindings"]
+repository = "https://github.com/backtrace-labs/umash-rs"
+
+[dependencies]
+lazy_static = "1"
+umash-sys = "0.1.2"
