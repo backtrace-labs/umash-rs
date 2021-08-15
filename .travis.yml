@@ -1,0 +1,15 @@
+language: rust
+rust:
+  - 1.52.1
+  - stable
+  - beta
+  - nightly
+arch:
+  - amd64
+  - aarch64
+
+jobs:
+  allow_failures:
+    - rust: nightly
+
+cache: cargo
