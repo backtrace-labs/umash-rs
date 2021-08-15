@@ -1,7 +1,7 @@
 umash-rs: a rust API for UMASH
 ================================
 
-[![Build Status](https://travis-ci.com/backtrace-labs/umash-rs.svg?branch=main)](https://travis-ci.com/backtrace-labs/umash-rs) ![crates.io](https://img.shields.io/crates/v/umash.svg)
+[![Build Status](https://travis-ci.com/backtrace-labs/umash-rs.svg?branch=main)](https://travis-ci.com/backtrace-labs/umash-rs) [![crates.io](https://img.shields.io/crates/v/umash.svg)](https://crates.io/crates/umash)
 
 
 UMASH is a family of fast hash / fingerprinting functions with
