@@ -6,10 +6,12 @@ rust:
   - nightly
 arch:
   - amd64
-  - aarch64
+  - arm64
 
 jobs:
   allow_failures:
     - rust: nightly
 
+os: linux
+dist: bionic
 cache: cargo
