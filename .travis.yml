@@ -1,6 +1,6 @@
 language: rust
 rust:
-  - 1.52.1
+  - 1.53.0
   - stable
   - beta
   - nightly
@@ -15,3 +15,18 @@ jobs:
 os: linux
 dist: bionic
 cache: cargo
+
+before_script: |
+  if [ "x$TRAVIS_RUST_VERSION" -eq xstable -a "x$TRAVIS_CPU_ARCH" -eq xamd64 ]; then
+    cargo install cargo-tarpaulin
+  fi
+
+script:
+- cargo clean
+- cargo build
+- cargo test
+
+after_success: |
+  if [ "x$TRAVIS_RUST_VERSION" -eq xstable -a "x$TRAVIS_CPU_ARCH" -eq xamd64 ]; then
+    cargo tarpaulin --ciserver travis-ci --coveralls $TRAVIS_JOB_ID
+  fi
