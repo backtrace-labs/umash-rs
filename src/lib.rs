@@ -89,6 +89,20 @@ impl<'a> Hasher<'a> {
 
         state
     }
+
+    pub fn write(&mut self, bytes: &[u8]) {
+        unsafe {
+            ffi::umash_sink_update(
+                &mut self.0.sink,
+                bytes.as_ptr() as *const _,
+                bytes.len() as u64,
+            );
+        }
+    }
+
+    pub fn digest(&self) -> u64 {
+        unsafe { ffi::umash_digest(&self.0) }
+    }
 }
 
 impl<'a> From<&'a Params> for Hasher<'a> {
@@ -97,19 +111,24 @@ impl<'a> From<&'a Params> for Hasher<'a> {
     }
 }
 
-impl<'a> std::hash::Hasher for Hasher<'a> {
+impl std::hash::Hasher for Hasher<'_> {
     fn finish(&self) -> u64 {
-        unsafe { ffi::umash_digest(&self.0) }
+        self.digest()
     }
 
     fn write(&mut self, bytes: &[u8]) {
-        unsafe {
-            ffi::umash_sink_update(
-                &mut self.0.sink,
-                bytes.as_ptr() as *const _,
-                bytes.len() as u64,
-            );
-        }
+        Self::write(self, bytes);
+    }
+}
+
+impl std::io::Write for Hasher<'_> {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        Self::write(self, bytes);
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
     }
 }
 
@@ -139,6 +158,16 @@ impl<'a> Fingerprinter<'a> {
         state
     }
 
+    pub fn write(&mut self, bytes: &[u8]) {
+        unsafe {
+            ffi::umash_sink_update(
+                &mut self.0.sink,
+                bytes.as_ptr() as *const _,
+                bytes.len() as u64,
+            );
+        }
+    }
+
     pub fn digest(&self) -> Fingerprint {
         let fprint = unsafe { ffi::umash_fp_digest(&self.0) };
 
@@ -154,19 +183,24 @@ impl<'a> From<&'a Params> for Fingerprinter<'a> {
     }
 }
 
-impl<'a> std::hash::Hasher for Fingerprinter<'a> {
+impl std::hash::Hasher for Fingerprinter<'_> {
     fn finish(&self) -> u64 {
         self.digest().hash[0]
     }
 
     fn write(&mut self, bytes: &[u8]) {
-        unsafe {
-            ffi::umash_sink_update(
-                &mut self.0.sink,
-                bytes.as_ptr() as *const _,
-                bytes.len() as u64,
-            );
-        }
+        Self::write(self, bytes);
+    }
+}
+
+impl std::io::Write for Fingerprinter<'_> {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        Self::write(self, bytes);
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
     }
 }
 
@@ -269,7 +303,7 @@ mod tests {
 
         let params = Params::derive(0, "backtrace".as_bytes());
         let mut h = Hasher::with_params(&params, 0xcd03, UmashComponent::Hash);
-        h.write(b"the quick brown fox");
+        StdHasher::write(&mut h, b"the quick brown fox");
         assert_eq!(h.finish(), 0x931972393b291c81);
     }
 }
