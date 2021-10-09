@@ -1,5 +1,4 @@
 use std::marker::PhantomData;
-use std::os::raw::c_void;
 use umash_sys as ffi;
 
 /// A `Params` struct wraps a set of hashing parameters.
@@ -174,7 +173,7 @@ impl<'a> std::hash::Hasher for Fingerprinter<'a> {
 impl Fingerprint {
     pub fn generate(params: &Params, seed: u64, input: &[u8]) -> Self {
         let input_len = input.len() as u64;
-        let input_ptr = input.as_ptr() as *const c_void;
+        let input_ptr = input.as_ptr() as *const _;
         let fprint = unsafe { ffi::umash_fprint(&params.0, seed, input_ptr, input_len) };
 
         Self {
@@ -183,14 +182,10 @@ impl Fingerprint {
     }
 }
 
-pub fn full_str(params: &Params, seed: u64, which: i32, input_str: &str) -> u64 {
-    full(params, seed, which, input_str.as_bytes())
-}
-
-pub fn full(params: &Params, seed: u64, which: i32, input: &[u8]) -> u64 {
+pub fn full(params: &Params, seed: u64, which: UmashComponent, input: &[u8]) -> u64 {
     let input_len = input.len() as u64;
-    let input_ptr: *const c_void = input.as_ptr() as *const c_void;
-    unsafe { ffi::umash_full(&params.0, seed, which, input_ptr, input_len) }
+    let input_ptr = input.as_ptr() as *const _;
+    unsafe { ffi::umash_full(&params.0, seed, which as i32, input_ptr, input_len) }
 }
 
 #[cfg(test)]

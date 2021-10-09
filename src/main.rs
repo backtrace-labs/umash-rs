@@ -13,8 +13,24 @@ fn main() {
 
     println!("Input: {}", input);
     println!("Fingerprint: {:x}, {:x}", fprint.hash[0], fprint.hash[1]);
-    println!("Hash 0: {:x}", umash::full_str(&my_params, seed, 0, &input));
-    println!("Hash 1: {:x}", umash::full_str(&my_params, seed, 1, &input));
+    println!(
+        "Hash 0: {:x}",
+        umash::full(
+            &my_params,
+            seed,
+            umash::UmashComponent::Hash,
+            input.as_bytes()
+        )
+    );
+    println!(
+        "Hash 1: {:x}",
+        umash::full(
+            &my_params,
+            seed,
+            umash::UmashComponent::Secondary,
+            input.as_bytes()
+        )
+    );
 
     let mut h: umash::Hasher = (&my_params).into();
     h.write(input.as_bytes());
