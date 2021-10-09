@@ -16,7 +16,7 @@ fn main() {
     println!("Hash 0: {:x}", umash::full_str(&my_params, seed, 0, &input));
     println!("Hash 1: {:x}", umash::full_str(&my_params, seed, 1, &input));
 
-    let mut h = umash::Hasher::new();
+    let mut h: umash::Hasher = (&my_params).into();
     h.write(input.as_bytes());
     println!("Hash: {:x}", h.finish());
 }

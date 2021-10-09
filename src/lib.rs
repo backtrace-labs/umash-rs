@@ -1,9 +1,6 @@
-mod hasher;
-
+use std::marker::PhantomData;
 use std::os::raw::c_void;
 use umash_sys as ffi;
-
-pub use hasher::Hasher;
 
 /// A `Params` struct wraps a set of hashing parameters.
 ///
@@ -66,25 +63,54 @@ impl Default for Params {
     }
 }
 
-#[derive(Copy, Clone)]
-pub struct State(ffi::umash_state);
+/// A `Hasher` wraps umash's incremental hashing state, and
+/// refers to a `Params` struct.
+#[derive(Clone)]
+pub struct Hasher<'params>(ffi::umash_state, PhantomData<&'params Params>);
 
-impl State {
-    pub fn new() -> Self {
-        unsafe { std::mem::zeroed() }
-    }
-    pub fn init(params: &Params, seed: u64, which: i32) -> Self {
-        let mut state = Self::new();
+pub enum UmashComponent {
+    Hash = 0,
+    Secondary = 1,
+}
+
+impl<'a> Hasher<'a> {
+    /// Returns a new empty hashing state for the umash function
+    /// described by `params`.  The `which` argument determines
+    /// whether the primary hash or the secondary disambiguation
+    /// value will be computed.
+    ///
+    /// Passing different values for `seed` will yield different hash
+    /// values, albeit without any statistical bound on collisions.
+    pub fn with_params(params: &'a Params, seed: u64, which: UmashComponent) -> Self {
+        let mut state = Hasher(unsafe { std::mem::zeroed() }, PhantomData);
+
         unsafe {
-            ffi::umash_init(&mut state.0, &params.0, seed, which);
+            ffi::umash_init(&mut state.0, &params.0, seed, which as i32);
         }
+
         state
     }
 }
 
-impl Default for State {
-    fn default() -> Self {
-        Self::new()
+impl<'a> From<&'a Params> for Hasher<'a> {
+    fn from(params: &'a Params) -> Hasher<'a> {
+        Hasher::with_params(params, 0, UmashComponent::Hash)
+    }
+}
+
+impl<'a> std::hash::Hasher for Hasher<'a> {
+    fn finish(&self) -> u64 {
+        unsafe { ffi::umash_digest(&self.0) }
+    }
+
+    fn write(&mut self, bytes: &[u8]) {
+        unsafe {
+            ffi::umash_sink_update(
+                &mut self.0.sink,
+                bytes.as_ptr() as *const _,
+                bytes.len() as u64,
+            );
+        }
     }
 }
 
@@ -117,7 +143,7 @@ pub fn full(params: &Params, seed: u64, which: i32, input: &[u8]) -> u64 {
 
 #[cfg(test)]
 mod tests {
-    use crate::{Fingerprint, Params};
+    use crate::{Fingerprint, Hasher, Params, UmashComponent};
 
     #[test]
     fn test_example_case() {
@@ -153,5 +179,25 @@ mod tests {
 
         assert!(fp1 == fp2);
         assert!(fp2 < fp3);
+    }
+
+    #[test]
+    fn test_example_case_with_separate_params() {
+        use std::hash::Hasher as StdHasher;
+
+        let params = Params::derive(0, "hello example.c".as_bytes());
+        let mut h = Hasher::with_params(&params, 42u64, UmashComponent::Hash);
+        h.write(b"the quick brown fox");
+        assert_eq!(h.finish(), 0x398c5bb5cc113d03);
+    }
+
+    #[test]
+    fn test_another_case_with_separate_params() {
+        use std::hash::Hasher as StdHasher;
+
+        let params = Params::derive(0, "backtrace".as_bytes());
+        let mut h = Hasher::with_params(&params, 0xcd03, UmashComponent::Hash);
+        h.write(b"the quick brown fox");
+        assert_eq!(h.finish(), 0x931972393b291c81);
     }
 }
