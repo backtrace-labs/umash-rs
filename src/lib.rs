@@ -119,6 +119,58 @@ pub struct Fingerprint {
     pub hash: [u64; 2],
 }
 
+/// A `Fingerprinter` wraps umash's incremental fingerprinting state,
+/// and refers to a `Params` struct.
+#[derive(Clone)]
+pub struct Fingerprinter<'params>(ffi::umash_fp_state, PhantomData<&'params Params>);
+
+impl<'a> Fingerprinter<'a> {
+    /// Returns a new empty fingerprinting state for the umash
+    /// function described by `params`.
+    ///
+    /// Passing different values for `seed` will yield different hash
+    /// values, albeit without any statistical bound on collisions.
+    pub fn with_params(params: &'a Params, seed: u64) -> Self {
+        let mut state = Self(unsafe { std::mem::zeroed() }, PhantomData);
+
+        unsafe {
+            ffi::umash_fp_init(&mut state.0, &params.0, seed);
+        }
+
+        state
+    }
+
+    pub fn digest(&self) -> Fingerprint {
+        let fprint = unsafe { ffi::umash_fp_digest(&self.0) };
+
+        Fingerprint {
+            hash: [fprint.hash[0], fprint.hash[1]],
+        }
+    }
+}
+
+impl<'a> From<&'a Params> for Fingerprinter<'a> {
+    fn from(params: &'a Params) -> Fingerprinter<'a> {
+        Fingerprinter::with_params(params, 0)
+    }
+}
+
+impl<'a> std::hash::Hasher for Fingerprinter<'a> {
+    fn finish(&self) -> u64 {
+        self.digest().hash[0]
+    }
+
+    fn write(&mut self, bytes: &[u8]) {
+        unsafe {
+            ffi::umash_sink_update(
+                &mut self.0.sink,
+                bytes.as_ptr() as *const _,
+                bytes.len() as u64,
+            );
+        }
+    }
+}
+
 impl Fingerprint {
     pub fn generate(params: &Params, seed: u64, input: &[u8]) -> Self {
         let input_len = input.len() as u64;
@@ -143,7 +195,7 @@ pub fn full(params: &Params, seed: u64, which: i32, input: &[u8]) -> u64 {
 
 #[cfg(test)]
 mod tests {
-    use crate::{Fingerprint, Hasher, Params, UmashComponent};
+    use crate::{Fingerprint, Fingerprinter, Hasher, Params, UmashComponent};
 
     #[test]
     fn test_example_case() {
@@ -153,6 +205,31 @@ mod tests {
         let my_params = Params::derive(0, key.as_bytes());
         let fprint = Fingerprint::generate(&my_params, seed, input.as_bytes());
         assert_eq!(fprint.hash, [0x398c5bb5cc113d03, 0x3a52693519575aba]);
+    }
+
+    #[test]
+    fn test_example_case_hashers() {
+        use std::hash::Hasher as StdHasher;
+
+        let key = "hello example.c";
+        let input = "the quick brown fox";
+        let seed = 42u64;
+        let my_params = Params::derive(0, key.as_bytes());
+
+        let mut hasher = Hasher::with_params(&my_params, seed, UmashComponent::Hash);
+        let mut secondary = Hasher::with_params(&my_params, seed, UmashComponent::Secondary);
+        let mut fprint = Fingerprinter::with_params(&my_params, seed);
+
+        hasher.write(input.as_bytes());
+        secondary.write(input.as_bytes());
+        fprint.write(input.as_bytes());
+
+        assert_eq!(hasher.finish(), 0x398c5bb5cc113d03);
+        assert_eq!(secondary.finish(), 0x3a52693519575aba);
+        assert_eq!(
+            fprint.digest().hash,
+            [0x398c5bb5cc113d03, 0x3a52693519575aba]
+        );
     }
 
     #[test]
