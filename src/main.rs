@@ -8,7 +8,7 @@ fn main() {
         .cloned()
         .unwrap_or_else(|| "default input".to_string());
     let seed = 42u64;
-    let my_params = umash::Params::derive(0, "hello example.c");
+    let my_params = umash::Params::derive(0, "hello example.c".as_bytes());
     let fprint = umash::Fingerprint::generate(&my_params, seed, input.as_bytes());
 
     println!("Input: {}", input);

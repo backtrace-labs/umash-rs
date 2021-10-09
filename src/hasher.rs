@@ -5,7 +5,7 @@ use std::os::raw::c_void;
 use crate::{ffi, Params, State};
 
 lazy_static::lazy_static! {
-    static ref DEFAULT_PARAMS: Params = Params::derive(0, "hello example.c");
+    static ref DEFAULT_PARAMS: Params = Params::derive(0, "hello example.c".as_bytes());
 }
 
 pub struct Hasher<'a> {
@@ -59,7 +59,7 @@ mod tests {
 
     #[test]
     fn test_example_case_with_separate_params() {
-        let params = Params::derive(0, "hello example.c");
+        let params = Params::derive(0, "hello example.c".as_bytes());
         let mut h = super::Hasher::with_params(&params, 42u64);
         h.write(b"the quick brown fox");
         assert_eq!(h.finish(), 0x398c5bb5cc113d03);
@@ -67,7 +67,7 @@ mod tests {
 
     #[test]
     fn test_another_case_with_separate_params() {
-        let params = Params::derive(0, "backtrace");
+        let params = Params::derive(0, "backtrace".as_bytes());
         let mut h = super::Hasher::with_params(&params, 0xcd03);
         h.write(b"the quick brown fox");
         assert_eq!(h.finish(), 0x931972393b291c81);

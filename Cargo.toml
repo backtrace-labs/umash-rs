@@ -10,5 +10,6 @@ categories = ["api-bindings"]
 repository = "https://github.com/backtrace-labs/umash-rs"
 
 [dependencies]
+getrandom = "0.2"
 lazy_static = "1"
 umash-sys = "0.2.0"
