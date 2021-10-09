@@ -1,13 +1,97 @@
+//! UMASH defines an almost-universal family of hash functions.  Each
+//! `Params` struct defines a specific hash function; when the
+//! parameters are generated pseudorandomly the probability that two
+//! different inputs of up to `s` bytes collide is at most `ceil(s /
+//! 4096) 2^-55` for the 64-bit hash.  The 128-bit fingerprint reduces
+//! that probability to less than `2^-70` for inputs of 1 GB or less.
+//!
+//! See the [reference repo](https://github.com/backtrace-labs/umash)
+//! for more details and proofs.
+
 use std::marker::PhantomData;
 use umash_sys as ffi;
 
-/// A `Params` struct wraps a set of hashing parameters.
+/// A `Params` stores a set of hashing parameters.
 ///
-/// There are 38 such u64 parameters, so while a `Params` struct does
+/// By default, each `Params` is generated independently with unique
+/// pseudorandom parameters.  Call `Params::derive` to generate
+/// repeatable parameters that will compute the same hash and
+/// fingerprint values across processes, programs, and architectures.
+///
+/// This struct consists of 38 `u64` parameters, so while `Params` do
 /// not own any resource, they should be passed by reference rather
-/// than copied as much as possible.
+/// than copied, as much as possible.
 #[derive(Clone)]
 pub struct Params(ffi::umash_params);
+
+/// A given `Params` struct defines a pair of 64-bit hash functions.
+/// The `Hash` is the primary hash value; we find a 128-bit
+/// fingerprint by combining that primary value with the `Secondary`
+/// hash (in practice, it's more efficient to compute both hash values
+/// concurrently, when one knows they want a fingerprint).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum UmashComponent {
+    /// Compute the primary 64 bit hash (the first `u64` in a
+    /// `Fingerprint`)
+    Hash = 0,
+
+    /// Compute the secondary 64-bit value (the second `u64` in a
+    /// `Fingerprint`).  This secondary value is slightly less
+    /// well distributed and collision resistant than the primary,
+    /// but combines efficiently with the primary to compute a
+    /// reasonably strong 128-bit Fingerprint.
+    Secondary = 1,
+}
+
+/// A 128-bit `Fingerprint` is constructed by UMASH as if we had
+/// computed the `Hash` and `Secondary` functions, and stored them
+/// in the `hash` array in order.
+///
+/// This makes it possible to check a document against a `Fingerprint`
+/// by only computing the 64-bit `Hash`, and comparing that with
+/// `hash[0]`: the comparison gives us less confidence, but is faster
+/// to compute.
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash, Ord, PartialOrd)]
+pub struct Fingerprint {
+    pub hash: [u64; 2],
+}
+
+/// A `Hasher` implements one of the two hash 64-bit functions defined
+/// by a specific `Params` struct, further tweaked by a seed.
+///
+/// The hash value is a function of the `Params`, the
+/// `UmashComponent`, the seed, and of the bytes written to the
+/// `Hasher`, but independent of the size of the individual slices
+/// written to the hasher.
+///
+/// In other words, it doesn't matter how we partition an input, the
+/// `Hasher` computes the same hash value as a one-shot UMASH call
+/// for the parameters and the concatenated input bytes.
+#[derive(Clone)]
+pub struct Hasher<'params>(ffi::umash_state, PhantomData<&'params Params>);
+
+/// A `Fingerprinter` implements the 128-bit fingerprinting function
+/// defined by a specific `Params` struct, further tweaked by a seed.
+///
+/// The fingerprint value is a function of the `Params`, the seed, and
+/// of the bytes written to the `Fingerprinter`, but independent of
+/// the size of the individual slices written to the hasher.
+///
+/// In other words, it doesn't matter how we partition an input, the
+/// `Fingerprinter` computes the same fingerprint as a one-shot UMASH
+/// call for the parameters and the concatenated input bytes.
+///
+/// The two 64-bit value in the resulting fingerprint are equivalent
+/// to the value computed by the 64-bit UMASH functions for the same
+/// `Params`, seed, and inputs, with `UmashComponent::Hash` for the
+/// `Fingerprint::hash[0]`, and with `UmashComponent::Secondary` for
+/// `Fingerprint::hash[1]`.
+///
+/// When used as a `std::hash::Hasher`, the hash value computed by a
+/// `Fingerprinter` is equivalent to the `Hasher` for
+/// `UmashComponent::Hash`.
+#[derive(Clone)]
+pub struct Fingerprinter<'params>(ffi::umash_fp_state, PhantomData<&'params Params>);
 
 impl Params {
     /// Returns a new pseudo-unique `Params` value.
@@ -62,21 +146,11 @@ impl Default for Params {
     }
 }
 
-/// A `Hasher` wraps umash's incremental hashing state, and
-/// refers to a `Params` struct.
-#[derive(Clone)]
-pub struct Hasher<'params>(ffi::umash_state, PhantomData<&'params Params>);
-
-pub enum UmashComponent {
-    Hash = 0,
-    Secondary = 1,
-}
-
 impl<'a> Hasher<'a> {
-    /// Returns a new empty hashing state for the umash function
-    /// described by `params`.  The `which` argument determines
-    /// whether the primary hash or the secondary disambiguation
-    /// value will be computed.
+    /// Returns a fresh hashing state for the UMASH function described
+    /// by `params`.  The `which` argument determines whether the
+    /// primary hash or the secondary disambiguation value will be
+    /// computed.
     ///
     /// Passing different values for `seed` will yield different hash
     /// values, albeit without any statistical bound on collisions.
@@ -90,6 +164,8 @@ impl<'a> Hasher<'a> {
         state
     }
 
+    /// Updates the hash state by conceptually concatenating `bytes`
+    /// to the hash input.
     pub fn write(&mut self, bytes: &[u8]) {
         unsafe {
             ffi::umash_sink_update(
@@ -100,6 +176,8 @@ impl<'a> Hasher<'a> {
         }
     }
 
+    /// Returns the 64-bit hash value for the `Hasher`'s params and
+    /// bytes passed to `write` so far.
     pub fn digest(&self) -> u64 {
         unsafe { ffi::umash_digest(&self.0) }
     }
@@ -132,22 +210,13 @@ impl std::io::Write for Hasher<'_> {
     }
 }
 
-#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash, Ord, PartialOrd)]
-pub struct Fingerprint {
-    pub hash: [u64; 2],
-}
-
-/// A `Fingerprinter` wraps umash's incremental fingerprinting state,
-/// and refers to a `Params` struct.
-#[derive(Clone)]
-pub struct Fingerprinter<'params>(ffi::umash_fp_state, PhantomData<&'params Params>);
-
 impl<'a> Fingerprinter<'a> {
-    /// Returns a new empty fingerprinting state for the umash
-    /// function described by `params`.
+    /// Returns a fresh fingerprinting state for the UMASH function
+    /// described by `params`.
     ///
-    /// Passing different values for `seed` will yield different hash
-    /// values, albeit without any statistical bound on collisions.
+    /// Passing different values for `seed` will yield different
+    /// fingerprint values, albeit without any statistical bound on
+    /// collisions.
     pub fn with_params(params: &'a Params, seed: u64) -> Self {
         let mut state = Self(unsafe { std::mem::zeroed() }, PhantomData);
 
@@ -158,6 +227,8 @@ impl<'a> Fingerprinter<'a> {
         state
     }
 
+    /// Updates the fingerprinting state by conceptually concatenating
+    /// `bytes` to the fingerprint input.
     pub fn write(&mut self, bytes: &[u8]) {
         unsafe {
             ffi::umash_sink_update(
@@ -168,6 +239,8 @@ impl<'a> Fingerprinter<'a> {
         }
     }
 
+    /// Returns the 128-bit fingerprint value for the
+    /// `Fingerprinter`'s params and bytes passed to `write` so far.
     pub fn digest(&self) -> Fingerprint {
         let fprint = unsafe { ffi::umash_fp_digest(&self.0) };
 
