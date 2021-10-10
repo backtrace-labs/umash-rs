@@ -21,6 +21,11 @@ use umash_sys as ffi;
 /// This struct consists of 38 `u64` parameters, so while `Params` do
 /// not own any resource, they should be passed by reference rather
 /// than copied, as much as possible.
+///
+/// `Params` implements `std::hash::BuildHasher`; pass a `&'static
+/// Params` to, e.g., a `std::collections::HashMap`, and the hash
+/// values will be computed with as the primary UMASH value for these
+/// `Params`, and `seed = 0`.
 #[derive(Clone)]
 pub struct Params(ffi::umash_params);
 
@@ -216,6 +221,14 @@ impl Default for Params {
     #[inline(always)]
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl<'a> std::hash::BuildHasher for &'a Params {
+    type Hasher = Hasher<'a>;
+
+    fn build_hasher(&self) -> Hasher<'a> {
+        (*self).into()
     }
 }
 
@@ -430,5 +443,16 @@ mod tests {
         let mut h = Hasher::with_params(&params, 0xcd03, UmashComponent::Hash);
         StdHasher::write(&mut h, b"the quick brown fox");
         assert_eq!(h.finish(), 0x931972393b291c81);
+    }
+
+    #[test]
+    fn test_hash_map() {
+        use std::collections::HashMap;
+
+        let params = Params::new();
+        let mut map: HashMap<i32, i32, _> = HashMap::with_hasher(&params);
+
+        map.insert(1, 2);
+        assert_eq!(map.get(&1), Some(&2));
     }
 }
