@@ -1,9 +1,10 @@
-//! UMASH defines an almost-universal family of hash functions.  Each
+//! UMASH is an almost-universal family of hash functions.  Each
 //! [`Params`] struct defines a specific hash function; when the
-//! parameters are generated pseudorandomly the probability that two
-//! different inputs of up to `s` bytes collide is at most `ceil(s /
-//! 4096) 2^-55` for the 64-bit hash.  The 128-bit fingerprint reduces
-//! that probability to less than `2^-70` for inputs of 1 GB or less.
+//! parameters are generated pseudorandomly, the probability that two
+//! different inputs of up to `s` bytes collide (for an independently
+//! generated set of parameters) is at most `ceil(s / 4096) 2^-55` for
+//! the 64-bit hash.  The 128-bit fingerprint reduces that probability
+//! to less than `2^-70` for inputs of 1 GB or less.
 //!
 //! See the [reference repo](https://github.com/backtrace-labs/umash)
 //! for more details and proofs.
@@ -14,9 +15,10 @@ use umash_sys as ffi;
 /// A [`Params`] stores a set of hashing parameters.
 ///
 /// By default, each [`Params`] is generated independently with unique
-/// pseudorandom parameters.  Call `Params::derive` to generate
+/// pseudorandom parameters.  Call [`Params::derive`] to generate
 /// repeatable parameters that will compute the same hash and
-/// fingerprint values across processes, programs, and architectures.
+/// fingerprint values across processes, programs, architectures,
+/// and UMASH versions.
 ///
 /// This struct consists of 38 `u64` parameters, so while [`Params`]
 /// do not own any resource, they should be passed by reference rather
@@ -65,6 +67,8 @@ pub struct Fingerprint {
 }
 
 impl Fingerprint {
+    /// Returns a 128-bit `Fingerprint` for this `hash` and
+    /// `secondary` value.
     #[inline(always)]
     pub fn new(hash: u64, secondary: u64) -> Self {
         Fingerprint {
@@ -72,7 +76,7 @@ impl Fingerprint {
         }
     }
 
-    /// Returns the [`UmashComponent::Hash` component of the fingerprint.
+    /// Returns the [`UmashComponent::Hash`] component of the fingerprint.
     #[inline(always)]
     pub fn hash(&self) -> u64 {
         self.hash[0]
@@ -107,12 +111,12 @@ impl Fingerprint {
 #[derive(Clone)]
 pub struct Hasher<'params>(ffi::umash_state, PhantomData<&'params Params>);
 
-/// A [`Fingerprinter` implements the 128-bit fingerprinting function
+/// A [`Fingerprinter`] implements the 128-bit fingerprinting function
 /// defined by a specific [`Params`] struct, further tweaked by a seed.
 /// Construct [`Fingerprinter`]s with [`Params::fingerprinter`].
 ///
 /// The fingerprint value is a function of the [`Params`], the seed,
-/// and of the bytes written to the [`Fingerprinter`, but independent
+/// and of the bytes written to the [`Fingerprinter`], but independent
 /// of the size of the individual slices written to the hasher.
 ///
 /// In other words, it doesn't matter how we partition an input, the
@@ -128,7 +132,7 @@ pub struct Hasher<'params>(ffi::umash_state, PhantomData<&'params Params>);
 /// When used as a [`std::hash::Hasher`], the hash value computed by a
 /// [`Fingerprinter`] is equivalent to the [`Hasher`] for
 /// [`UmashComponent::Hash`].  That's not useful in itself, but it
-/// makes sense to pass a [`Fingerprinter`] to a `std::hash::Hash`,
+/// makes sense to pass a [`Fingerprinter`] to a [`std::hash::Hash`],
 /// and extract a [`Fingerprint`] for the input data with
 /// [`Fingerprinter::digest`].
 #[derive(Clone)]
@@ -249,15 +253,15 @@ impl Default for Params {
     }
 }
 
-impl<'a> std::hash::BuildHasher for &'a Params {
-    type Hasher = Hasher<'a>;
+impl<'params> std::hash::BuildHasher for &'params Params {
+    type Hasher = Hasher<'params>;
 
-    fn build_hasher(&self) -> Hasher<'a> {
+    fn build_hasher(&self) -> Hasher<'params> {
         (*self).into()
     }
 }
 
-impl<'a> Hasher<'a> {
+impl<'params> Hasher<'params> {
     /// Returns a fresh hashing state for the UMASH function described
     /// by `params`.  The `which` argument determines whether the
     /// primary hash or the secondary disambiguation value will be
@@ -266,7 +270,7 @@ impl<'a> Hasher<'a> {
     /// Passing different values for `seed` will yield different hash
     /// values, albeit without any statistical bound on collisions.
     #[inline(always)]
-    fn with_params(params: &'a Params, seed: u64, which: UmashComponent) -> Self {
+    fn with_params(params: &'params Params, seed: u64, which: UmashComponent) -> Self {
         let mut state = Hasher(unsafe { std::mem::zeroed() }, PhantomData);
 
         unsafe {
@@ -299,9 +303,9 @@ impl<'a> Hasher<'a> {
     }
 }
 
-impl<'a> From<&'a Params> for Hasher<'a> {
+impl<'params> From<&'params Params> for Hasher<'params> {
     #[inline(always)]
-    fn from(params: &'a Params) -> Hasher<'a> {
+    fn from(params: &'params Params) -> Hasher<'params> {
         params.hasher(0)
     }
 }
@@ -331,7 +335,7 @@ impl std::io::Write for Hasher<'_> {
     }
 }
 
-impl<'a> Fingerprinter<'a> {
+impl<'params> Fingerprinter<'params> {
     /// Returns a fresh fingerprinting state for the UMASH function
     /// described by `params`.
     ///
@@ -339,7 +343,7 @@ impl<'a> Fingerprinter<'a> {
     /// fingerprint values, albeit without any statistical bound on
     /// collisions.
     #[inline(always)]
-    fn with_params(params: &'a Params, seed: u64) -> Self {
+    fn with_params(params: &'params Params, seed: u64) -> Self {
         let mut state = Self(unsafe { std::mem::zeroed() }, PhantomData);
 
         unsafe {
@@ -375,9 +379,9 @@ impl<'a> Fingerprinter<'a> {
     }
 }
 
-impl<'a> From<&'a Params> for Fingerprinter<'a> {
+impl<'params> From<&'params Params> for Fingerprinter<'params> {
     #[inline(always)]
-    fn from(params: &'a Params) -> Fingerprinter<'a> {
+    fn from(params: &'params Params) -> Fingerprinter<'params> {
         params.fingerprinter(0)
     }
 }
