@@ -12,7 +12,8 @@
 use std::marker::PhantomData;
 use umash_sys as ffi;
 
-/// A [`Params`] stores a set of hashing parameters.
+/// A [`Params`] stores a set of hashing parameters that define a
+/// specific UMASH function.
 ///
 /// By default, each [`Params`] is generated independently with unique
 /// pseudorandom parameters.  Call [`Params::derive`] to generate
@@ -20,14 +21,22 @@ use umash_sys as ffi;
 /// fingerprint values across processes, programs, architectures,
 /// and UMASH versions.
 ///
-/// This struct consists of 38 `u64` parameters, so while [`Params`]
+/// While the derivation algorithm and the UMASH hash functions are
+/// fully defined independently of the platform, the `std::hash::Hash`
+/// functions may not be.  When computing hash or fingerprint values
+/// that will be persisted or compared in different processes (or
+/// programs, or machines), it is safest to directly pass `&[u8]`
+/// bytes to [`Hasher::write`] or [`Fingerprinter::write`] or to their
+/// [`std::io::Write`] implementation.
+///
+/// This struct consists of 38 `u64` parameters, so although [`Params`]
 /// do not own any resource, they should be passed by reference rather
 /// than copied, as much as possible.
 ///
-/// [`Params`] implements [`std::hash::BuildHasher`]: pass a `&'static
+/// [`Params`] implement [`std::hash::BuildHasher`]: pass a `&'static
 /// Params` to, e.g., [`std::collections::HashMap::with_hasher`], and
 /// the hash values will be computed with as the primary UMASH value
-/// for these [`Params`], and `seed = 0`.
+/// for these [`Params`], for `seed = 0`.
 #[derive(Clone)]
 pub struct Params(ffi::umash_params);
 
@@ -246,6 +255,8 @@ impl Params {
     }
 }
 
+/// The default constructor for [`Params`] returns a fresh unique set
+/// of parameters.
 impl Default for Params {
     #[inline(always)]
     fn default() -> Self {
@@ -253,6 +264,15 @@ impl Default for Params {
     }
 }
 
+/// A *reference* to a [`Params`] struct may be passed to hashed
+/// collections.  The collection will use hashers derived from
+/// that static set of parameters (with `seed = 0`).
+///
+///
+/// Unfortunately, due to lifetime complications, it's not clear how
+/// to make each hashed collection generate a new [`Default`]
+/// [`Params`]: we want a guarantee that hashers will never outlive
+/// their parent builder.
 impl<'params> std::hash::BuildHasher for &'params Params {
     type Hasher = Hasher<'params>;
 
@@ -303,6 +323,8 @@ impl<'params> Hasher<'params> {
     }
 }
 
+/// Converts a `&Params` to [`Hasher`] by constructing a fresh
+/// [`Hasher`] for these [`Params`] and `seed = 0`.
 impl<'params> From<&'params Params> for Hasher<'params> {
     #[inline(always)]
     fn from(params: &'params Params) -> Hasher<'params> {
@@ -322,6 +344,11 @@ impl std::hash::Hasher for Hasher<'_> {
     }
 }
 
+/// [`Hasher`]s compute the same hash value for a given sequence of
+/// bytes, regardless of the number of bytes in each `write` call.
+///
+/// Call [`Hasher::digest`] to find the hash value for the
+/// concatenation of all the bytes written to the [`Hasher`].
 impl std::io::Write for Hasher<'_> {
     #[inline(always)]
     fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
@@ -329,6 +356,10 @@ impl std::io::Write for Hasher<'_> {
         Ok(bytes.len())
     }
 
+    /// Flushing a [`Hasher`] cannot compute the fingerprint, due to
+    /// the trait's interface; the implementation is a no-op.
+    ///
+    /// See [`Hasher::digest`].
     #[inline(always)]
     fn flush(&mut self) -> std::io::Result<()> {
         Ok(())
@@ -379,6 +410,8 @@ impl<'params> Fingerprinter<'params> {
     }
 }
 
+/// Converts a `&Params` to [`Fingerprinter`] by constructing a fresh
+/// [`Fingerprinter`] for these [`Params`] and `seed = 0`.
 impl<'params> From<&'params Params> for Fingerprinter<'params> {
     #[inline(always)]
     fn from(params: &'params Params) -> Fingerprinter<'params> {
@@ -386,7 +419,18 @@ impl<'params> From<&'params Params> for Fingerprinter<'params> {
     }
 }
 
+/// A [`Fingerprinter`] implements the same [`std::hash::Hasher`] as a
+/// primary [`Params::hasher`] for the same parameters.  The
+/// difference is that the [`Fingerprinter`] actually computes the
+/// whole 128-bit [`Fingerprint`], which can be obtained with
+/// [`Fingerprinter::digest`] after passing the [`Fingerprinter`] to
+/// [`std::hash::Hash::hash`].
 impl std::hash::Hasher for Fingerprinter<'_> {
+    /// Finishing a `Fingerprinter` can only return half of the
+    /// 128-bit fingerprint (the primary [`Fingerprint::hash`] value),
+    /// due to the trait's interface.
+    ///
+    /// See [`Fingerprinter::digest`].
     #[inline(always)]
     fn finish(&self) -> u64 {
         self.digest().hash()
@@ -398,6 +442,13 @@ impl std::hash::Hasher for Fingerprinter<'_> {
     }
 }
 
+/// [`Fingerprinter`]s compute the same fingerprint for a given
+/// sequence of bytes, regardless of the number of bytes in each
+/// `write` call.
+///
+/// Call [`Fingerprinter::digest`] to find the fingerprint value for
+/// the concatenation of all the bytes written to the
+/// [`Fingerprinter`].
 impl std::io::Write for Fingerprinter<'_> {
     #[inline(always)]
     fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
@@ -405,6 +456,10 @@ impl std::io::Write for Fingerprinter<'_> {
         Ok(bytes.len())
     }
 
+    /// Flushing a [`Fingerprinter`] cannot compute the fingerprint,
+    /// due to the trait's interface; the implementation is a no-op.
+    ///
+    /// See [`Fingerprinter::digest`].
     #[inline(always)]
     fn flush(&mut self) -> std::io::Result<()> {
         Ok(())
