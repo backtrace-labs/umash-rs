@@ -9,27 +9,23 @@ fn main() {
         .unwrap_or_else(|| "default input".to_string());
     let seed = 42u64;
     let my_params = umash::Params::derive(0, "hello example.c".as_bytes());
-    let fprint = umash::Fingerprint::generate(&my_params, seed, input.as_bytes());
+    let fprint = my_params
+        .fingerprinter(seed)
+        .write(input.as_bytes())
+        .digest();
 
     println!("Input: {}", input);
     println!("Fingerprint: {:x}, {:x}", fprint.hash[0], fprint.hash[1]);
     println!(
         "Hash 0: {:x}",
-        umash::full(
-            &my_params,
-            seed,
-            umash::UmashComponent::Hash,
-            input.as_bytes()
-        )
+        my_params.hasher(seed).write(input.as_bytes()).digest()
     );
     println!(
         "Hash 1: {:x}",
-        umash::full(
-            &my_params,
-            seed,
-            umash::UmashComponent::Secondary,
-            input.as_bytes()
-        )
+        my_params
+            .secondary_hasher(seed)
+            .write(input.as_bytes())
+            .digest()
     );
 
     let mut h: umash::Hasher = (&my_params).into();

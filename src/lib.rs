@@ -78,6 +78,8 @@ impl Fingerprint {
 
 /// A `Hasher` implements one of the two hash 64-bit functions defined
 /// by a specific `Params` struct, further tweaked by a seed.
+/// Construct `Hasher`s with `Params::hasher`,
+/// `Params::secondary_hasher`, or `Params::component_hasher`.
 ///
 /// The hash value is a function of the `Params`, the
 /// `UmashComponent`, the seed, and of the bytes written to the
@@ -92,6 +94,7 @@ pub struct Hasher<'params>(ffi::umash_state, PhantomData<&'params Params>);
 
 /// A `Fingerprinter` implements the 128-bit fingerprinting function
 /// defined by a specific `Params` struct, further tweaked by a seed.
+/// Construct `Fingerprinter`s with `Params::fingerprinter`.
 ///
 /// The fingerprint value is a function of the `Params`, the seed, and
 /// of the bytes written to the `Fingerprinter`, but independent of
@@ -158,9 +161,59 @@ impl Params {
 
         params
     }
+
+    /// Returns a hasher for the primary UMASH function.
+    #[inline(always)]
+    pub fn hasher(&self, seed: u64) -> Hasher {
+        self.component_hasher(seed, UmashComponent::Hash)
+    }
+
+    /// Returns a hasher for the secondary UMASH function.
+    #[inline(always)]
+    pub fn secondary_hasher(&self, seed: u64) -> Hasher {
+        self.component_hasher(seed, UmashComponent::Secondary)
+    }
+
+    /// Returns a hasher for the desired UMASH component (primary hash
+    /// or secondary function).
+    #[inline(always)]
+    pub fn component_hasher(&self, seed: u64, which: UmashComponent) -> Hasher {
+        Hasher::with_params(self, seed, which)
+    }
+
+    /// Returns a fingerprinter for the UMASH function.
+    #[inline(always)]
+    pub fn fingerprinter(&self, seed: u64) -> Fingerprinter {
+        Fingerprinter::with_params(self, seed)
+    }
+
+    /// Computes the hash value defined by this set of UMASH params
+    /// for `object` and `seed = 0`.
+    pub fn hash(&self, object: impl std::hash::Hash) -> u64 {
+        let mut hasher = self.hasher(0);
+        object.hash(&mut hasher);
+        hasher.digest()
+    }
+
+    /// Computes the secondary hash value defined by this set of UMASH
+    /// params for `object` and `seed = 0`.
+    pub fn secondary(&self, object: impl std::hash::Hash) -> u64 {
+        let mut hasher = self.secondary_hasher(0);
+        object.hash(&mut hasher);
+        hasher.digest()
+    }
+
+    /// Computes the fingerprint value defined by this set of UMASH
+    /// params for `object` and `seed = 0`.
+    pub fn fingerprint(&self, object: impl std::hash::Hash) -> Fingerprint {
+        let mut hasher = self.fingerprinter(0);
+        object.hash(&mut hasher);
+        hasher.digest()
+    }
 }
 
 impl Default for Params {
+    #[inline(always)]
     fn default() -> Self {
         Self::new()
     }
@@ -174,7 +227,8 @@ impl<'a> Hasher<'a> {
     ///
     /// Passing different values for `seed` will yield different hash
     /// values, albeit without any statistical bound on collisions.
-    pub fn with_params(params: &'a Params, seed: u64, which: UmashComponent) -> Self {
+    #[inline(always)]
+    fn with_params(params: &'a Params, seed: u64, which: UmashComponent) -> Self {
         let mut state = Hasher(unsafe { std::mem::zeroed() }, PhantomData);
 
         unsafe {
@@ -186,6 +240,7 @@ impl<'a> Hasher<'a> {
 
     /// Updates the hash state by conceptually concatenating `bytes`
     /// to the hash input.
+    #[inline(always)]
     pub fn write(&mut self, bytes: &[u8]) -> &mut Self {
         unsafe {
             ffi::umash_sink_update(
@@ -200,33 +255,39 @@ impl<'a> Hasher<'a> {
 
     /// Returns the 64-bit hash value for the `Hasher`'s params and
     /// bytes passed to `write` so far.
+    #[inline(always)]
     pub fn digest(&self) -> u64 {
         unsafe { ffi::umash_digest(&self.0) }
     }
 }
 
 impl<'a> From<&'a Params> for Hasher<'a> {
+    #[inline(always)]
     fn from(params: &'a Params) -> Hasher<'a> {
-        Hasher::with_params(params, 0, UmashComponent::Hash)
+        params.hasher(0)
     }
 }
 
 impl std::hash::Hasher for Hasher<'_> {
+    #[inline(always)]
     fn finish(&self) -> u64 {
         self.digest()
     }
 
+    #[inline(always)]
     fn write(&mut self, bytes: &[u8]) {
         Self::write(self, bytes);
     }
 }
 
 impl std::io::Write for Hasher<'_> {
+    #[inline(always)]
     fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
         Self::write(self, bytes);
         Ok(bytes.len())
     }
 
+    #[inline(always)]
     fn flush(&mut self) -> std::io::Result<()> {
         Ok(())
     }
@@ -239,7 +300,8 @@ impl<'a> Fingerprinter<'a> {
     /// Passing different values for `seed` will yield different
     /// fingerprint values, albeit without any statistical bound on
     /// collisions.
-    pub fn with_params(params: &'a Params, seed: u64) -> Self {
+    #[inline(always)]
+    fn with_params(params: &'a Params, seed: u64) -> Self {
         let mut state = Self(unsafe { std::mem::zeroed() }, PhantomData);
 
         unsafe {
@@ -251,6 +313,7 @@ impl<'a> Fingerprinter<'a> {
 
     /// Updates the fingerprinting state by conceptually concatenating
     /// `bytes` to the fingerprint input.
+    #[inline(always)]
     pub fn write(&mut self, bytes: &[u8]) -> &mut Self {
         unsafe {
             ffi::umash_sink_update(
@@ -265,6 +328,7 @@ impl<'a> Fingerprinter<'a> {
 
     /// Returns the 128-bit fingerprint value for the
     /// `Fingerprinter`'s params and bytes passed to `write` so far.
+    #[inline(always)]
     pub fn digest(&self) -> Fingerprint {
         let fprint = unsafe { ffi::umash_fp_digest(&self.0) };
 
@@ -275,53 +339,40 @@ impl<'a> Fingerprinter<'a> {
 }
 
 impl<'a> From<&'a Params> for Fingerprinter<'a> {
+    #[inline(always)]
     fn from(params: &'a Params) -> Fingerprinter<'a> {
-        Fingerprinter::with_params(params, 0)
+        params.fingerprinter(0)
     }
 }
 
 impl std::hash::Hasher for Fingerprinter<'_> {
+    #[inline(always)]
     fn finish(&self) -> u64 {
         self.digest().hash[0]
     }
 
+    #[inline(always)]
     fn write(&mut self, bytes: &[u8]) {
         Self::write(self, bytes);
     }
 }
 
 impl std::io::Write for Fingerprinter<'_> {
+    #[inline(always)]
     fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
         Self::write(self, bytes);
         Ok(bytes.len())
     }
 
+    #[inline(always)]
     fn flush(&mut self) -> std::io::Result<()> {
         Ok(())
     }
 }
 
-impl Fingerprint {
-    pub fn generate(params: &Params, seed: u64, input: &[u8]) -> Self {
-        let input_len = input.len() as u64;
-        let input_ptr = input.as_ptr() as *const _;
-        let fprint = unsafe { ffi::umash_fprint(&params.0, seed, input_ptr, input_len) };
-
-        Self {
-            hash: [fprint.hash[0], fprint.hash[1]],
-        }
-    }
-}
-
-pub fn full(params: &Params, seed: u64, which: UmashComponent, input: &[u8]) -> u64 {
-    let input_len = input.len() as u64;
-    let input_ptr = input.as_ptr() as *const _;
-    unsafe { ffi::umash_full(&params.0, seed, which as i32, input_ptr, input_len) }
-}
-
 #[cfg(test)]
 mod tests {
-    use crate::{Fingerprint, Fingerprinter, Hasher, Params, UmashComponent};
+    use crate::{Fingerprinter, Hasher, Params, UmashComponent};
 
     #[test]
     fn test_example_case() {
@@ -329,7 +380,10 @@ mod tests {
         let input = "the quick brown fox";
         let seed = 42u64;
         let my_params = Params::derive(0, key.as_bytes());
-        let fprint = Fingerprint::generate(&my_params, seed, input.as_bytes());
+        let fprint = my_params
+            .fingerprinter(seed)
+            .write(input.as_bytes())
+            .digest();
         assert_eq!(fprint.hash, [0x398c5bb5cc113d03, 0x3a52693519575aba]);
     }
 
