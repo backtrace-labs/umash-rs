@@ -56,6 +56,26 @@ pub struct Fingerprint {
     pub hash: [u64; 2],
 }
 
+impl Fingerprint {
+    /// Returns the `UmashComponent::Hash` component of the fingerprint.
+    #[inline(always)]
+    pub fn hash(&self) -> u64 {
+        self.hash[0]
+    }
+
+    /// Returns the `UmashComponent::Secondary` component of the
+    /// fingerprint.
+    #[inline(always)]
+    pub fn secondary(&self) -> u64 {
+        self.hash[1]
+    }
+
+    /// Returns the `which` component of the fingerprint.
+    pub fn component(&self, which: UmashComponent) -> u64 {
+        self.hash[which as usize]
+    }
+}
+
 /// A `Hasher` implements one of the two hash 64-bit functions defined
 /// by a specific `Params` struct, further tweaked by a seed.
 ///
@@ -166,7 +186,7 @@ impl<'a> Hasher<'a> {
 
     /// Updates the hash state by conceptually concatenating `bytes`
     /// to the hash input.
-    pub fn write(&mut self, bytes: &[u8]) {
+    pub fn write(&mut self, bytes: &[u8]) -> &mut Self {
         unsafe {
             ffi::umash_sink_update(
                 &mut self.0.sink,
@@ -174,6 +194,8 @@ impl<'a> Hasher<'a> {
                 bytes.len() as u64,
             );
         }
+
+        self
     }
 
     /// Returns the 64-bit hash value for the `Hasher`'s params and
@@ -229,7 +251,7 @@ impl<'a> Fingerprinter<'a> {
 
     /// Updates the fingerprinting state by conceptually concatenating
     /// `bytes` to the fingerprint input.
-    pub fn write(&mut self, bytes: &[u8]) {
+    pub fn write(&mut self, bytes: &[u8]) -> &mut Self {
         unsafe {
             ffi::umash_sink_update(
                 &mut self.0.sink,
@@ -237,6 +259,8 @@ impl<'a> Fingerprinter<'a> {
                 bytes.len() as u64,
             );
         }
+
+        self
     }
 
     /// Returns the 128-bit fingerprint value for the
@@ -332,32 +356,6 @@ mod tests {
             fprint.digest().hash,
             [0x398c5bb5cc113d03, 0x3a52693519575aba]
         );
-    }
-
-    #[test]
-    fn test_fingerprint_hash_cmp() {
-        use std::collections::hash_map::DefaultHasher;
-        use std::hash::Hash;
-        use std::hash::Hasher;
-
-        let hash = |x: &Fingerprint| {
-            let mut hasher = DefaultHasher::new();
-
-            x.hash(&mut hasher);
-            hasher.finish()
-        };
-
-        let fp1 = Fingerprint { hash: [1, 2] };
-        let fp2 = Fingerprint { hash: [1, 2] };
-        let fp3 = Fingerprint { hash: [2, 2] };
-
-        assert_eq!(fp1, fp2);
-        assert_ne!(fp2, fp3);
-        assert_eq!(hash(&fp1), hash(&fp2));
-        assert_ne!(hash(&fp2), hash(&fp3));
-
-        assert!(fp1 == fp2);
-        assert!(fp2 < fp3);
     }
 
     #[test]
