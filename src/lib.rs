@@ -65,6 +65,13 @@ pub struct Fingerprint {
 }
 
 impl Fingerprint {
+    #[inline(always)]
+    pub fn new(hash: u64, secondary: u64) -> Self {
+        Fingerprint {
+            hash: [hash, secondary],
+        }
+    }
+
     /// Returns the [`UmashComponent::Hash` component of the fingerprint.
     #[inline(always)]
     pub fn hash(&self) -> u64 {
@@ -364,9 +371,7 @@ impl<'a> Fingerprinter<'a> {
     pub fn digest(&self) -> Fingerprint {
         let fprint = unsafe { ffi::umash_fp_digest(&self.0) };
 
-        Fingerprint {
-            hash: [fprint.hash[0], fprint.hash[1]],
-        }
+        Fingerprint { hash: fprint.hash }
     }
 }
 
@@ -380,7 +385,7 @@ impl<'a> From<&'a Params> for Fingerprinter<'a> {
 impl std::hash::Hasher for Fingerprinter<'_> {
     #[inline(always)]
     fn finish(&self) -> u64 {
-        self.digest().hash[0]
+        self.digest().hash()
     }
 
     #[inline(always)]
@@ -404,43 +409,52 @@ impl std::io::Write for Fingerprinter<'_> {
 
 #[cfg(test)]
 mod tests {
-    use crate::{Fingerprinter, Hasher, Params, UmashComponent};
+    use crate::{Fingerprint, Fingerprinter, Params, UmashComponent};
 
     #[test]
     fn test_example_case() {
-        let key = "hello example.c";
-        let input = "the quick brown fox";
+        let key = b"hello example.c";
+        let input = b"the quick brown fox";
         let seed = 42u64;
-        let my_params = Params::derive(0, key.as_bytes());
-        let fprint = my_params
-            .fingerprinter(seed)
-            .write(input.as_bytes())
-            .digest();
-        assert_eq!(fprint.hash, [0x398c5bb5cc113d03, 0x3a52693519575aba]);
+        let my_params = Params::derive(0, key);
+        let fprint = my_params.fingerprinter(seed).write(input).digest();
+
+        assert_eq!(
+            fprint,
+            Fingerprint::new(0x398c5bb5cc113d03, 0x3a52693519575aba)
+        );
+
+        assert_eq!(fprint.hash(), 0x398c5bb5cc113d03);
+        assert_eq!(fprint.secondary(), 0x3a52693519575aba);
+        assert_eq!(fprint.component(UmashComponent::Hash), 0x398c5bb5cc113d03);
+        assert_eq!(
+            fprint.component(UmashComponent::Secondary),
+            0x3a52693519575aba
+        );
     }
 
     #[test]
     fn test_example_case_hashers() {
         use std::hash::Hasher as StdHasher;
 
-        let key = "hello example.c";
-        let input = "the quick brown fox";
+        let key = b"hello example.c";
+        let input = b"the quick brown fox";
         let seed = 42u64;
-        let my_params = Params::derive(0, key.as_bytes());
+        let params = Params::derive(0, key);
 
-        let mut hasher = Hasher::with_params(&my_params, seed, UmashComponent::Hash);
-        let mut secondary = Hasher::with_params(&my_params, seed, UmashComponent::Secondary);
-        let mut fprint = Fingerprinter::with_params(&my_params, seed);
+        let mut hasher = params.hasher(seed);
+        let mut secondary = params.secondary_hasher(seed);
+        let mut fprint = params.fingerprinter(seed);
 
-        hasher.write(input.as_bytes());
-        secondary.write(input.as_bytes());
-        fprint.write(input.as_bytes());
+        hasher.write(input);
+        secondary.write(input);
+        fprint.write(input);
 
         assert_eq!(hasher.finish(), 0x398c5bb5cc113d03);
         assert_eq!(secondary.finish(), 0x3a52693519575aba);
         assert_eq!(
-            fprint.digest().hash,
-            [0x398c5bb5cc113d03, 0x3a52693519575aba]
+            fprint.digest(),
+            Fingerprint::new(0x398c5bb5cc113d03, 0x3a52693519575aba)
         );
     }
 
@@ -448,20 +462,84 @@ mod tests {
     fn test_example_case_with_separate_params() {
         use std::hash::Hasher as StdHasher;
 
-        let params = Params::derive(0, "hello example.c".as_bytes());
-        let mut h = Hasher::with_params(&params, 42u64, UmashComponent::Hash);
-        h.write(b"the quick brown fox");
+        let params = Params::derive(0, b"hello example.c");
+        let mut h = params.component_hasher(42, UmashComponent::Hash);
+
+        StdHasher::write(&mut h, b"the quick brown fox");
         assert_eq!(h.finish(), 0x398c5bb5cc113d03);
+    }
+
+    #[test]
+    fn test_secondary_example_case_with_separate_params() {
+        use std::io::Write;
+
+        let params = Params::derive(0, b"hello example.c");
+        let mut h = params.component_hasher(42, UmashComponent::Secondary);
+
+        let message = b"the quick brown fox";
+        assert_eq!(
+            Write::write(&mut h, message).expect("must succeed"),
+            message.len()
+        );
+
+        assert_eq!(h.digest(), 0x3a52693519575aba);
+        h.flush().expect("must succeed");
+        assert_eq!(h.digest(), 0x3a52693519575aba);
     }
 
     #[test]
     fn test_another_case_with_separate_params() {
         use std::hash::Hasher as StdHasher;
 
-        let params = Params::derive(0, "backtrace".as_bytes());
-        let mut h = Hasher::with_params(&params, 0xcd03, UmashComponent::Hash);
+        let params = Params::derive(0, b"backtrace");
+        let mut h = params.fingerprinter(0xcd03);
         StdHasher::write(&mut h, b"the quick brown fox");
         assert_eq!(h.finish(), 0x931972393b291c81);
+    }
+
+    #[test]
+    fn test_another_case_with_separate_params_as_write() {
+        use std::io::Write;
+
+        let params = Params::derive(0, b"backtrace");
+        let mut h = params.fingerprinter(0xcd03);
+
+        let message = b"the quick brown fox";
+        assert_eq!(
+            Write::write(&mut h, message).expect("must succeed"),
+            message.len()
+        );
+
+        assert_eq!(
+            h.digest(),
+            Fingerprint::new(10599628788124425345, 10827422672915900785)
+        );
+        h.flush().expect("must succeed");
+        assert_eq!(
+            h.digest(),
+            Fingerprint::new(10599628788124425345, 10827422672915900785)
+        );
+    }
+
+    #[test]
+    fn test_into_fingerprinter_as_hasher() {
+        use std::hash::Hasher as StdHasher;
+
+        let params = Params::derive(0, b"backtrace");
+        let mut h: Fingerprinter = (&params).into();
+        StdHasher::write(&mut h, b"the quick brown fox");
+        assert_eq!(h.finish(), 3130985775916891977);
+    }
+
+    #[test]
+    fn test_simple_hashes() {
+        let params: Params = Default::default();
+        let hash = params.hash(100i32);
+        let secondary = params.secondary(100i32);
+        let fingerprint = params.fingerprint(100i32);
+
+        assert_ne!(hash, secondary);
+        assert_eq!(fingerprint, Fingerprint::new(hash, secondary));
     }
 
     #[test]
