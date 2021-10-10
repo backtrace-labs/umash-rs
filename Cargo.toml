@@ -1,6 +1,6 @@
 [package]
 name = "umash"
-version = "0.2.0"
+version = "0.3.0"
 authors = ["Backtrace I/O <team@backtrace.io>"]
 edition = "2018"
 license = "MIT"
@@ -11,4 +11,4 @@ repository = "https://github.com/backtrace-labs/umash-rs"
 
 [dependencies]
 getrandom = "0.2"
-umash-sys = "0.2.0"
+umash-sys = "0.2"
