@@ -1,6 +1,6 @@
 [package]
 name = "umash"
-version = "0.4.0"
+version = "0.4.1"
 authors = ["Backtrace I/O <team@backtrace.io>"]
 edition = "2018"
 license = "MIT"
