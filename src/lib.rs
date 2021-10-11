@@ -232,6 +232,12 @@ impl Params {
 
     /// Computes the [`UmashComponent::Hash`] value defined by this
     /// set of UMASH params for `object` and `seed = 0`.
+    ///
+    /// UMASH's collision probability bounds only hold if different
+    /// `object`s feed different byte streams to the hasher.  The
+    /// standard Rust [`std::Hash::hash`] implementations (and
+    /// automatically generated ones) satisfy this requirement for
+    /// values of the same type.
     pub fn hash(&self, object: impl std::hash::Hash) -> u64 {
         let mut hasher = self.hasher(0);
         object.hash(&mut hasher);
@@ -240,6 +246,12 @@ impl Params {
 
     /// Computes the [`UmashComponent::Secondary`] hash value defined
     /// by this set of UMASH params for `object` and `seed = 0`.
+    ///
+    /// UMASH's collision probability bounds only hold if different
+    /// `object`s feed different byte streams to the hasher.  The
+    /// standard Rust [`std::Hash::hash`] implementations (and
+    /// automatically generated ones) satisfy this requirement for
+    /// values of the same type.
     pub fn secondary(&self, object: impl std::hash::Hash) -> u64 {
         let mut hasher = self.secondary_hasher(0);
         object.hash(&mut hasher);
@@ -248,6 +260,12 @@ impl Params {
 
     /// Computes the fingerprint value defined by this set of UMASH
     /// params for `object` and `seed = 0`.
+    ///
+    /// UMASH's collision probability bounds only hold if different
+    /// `object`s feed different byte streams to the fingerprinter.
+    /// The standard Rust [`std::Hash::hash`] implementations (and
+    /// automatically generated ones) satisfy this requirement for
+    /// values of the same type.
     pub fn fingerprint(&self, object: impl std::hash::Hash) -> Fingerprint {
         let mut hasher = self.fingerprinter(0);
         object.hash(&mut hasher);
@@ -332,6 +350,11 @@ impl<'params> From<&'params Params> for Hasher<'params> {
     }
 }
 
+/// UMASH's collision probability bounds only hold if different
+/// `object`s feed different byte streams to the hasher.  The standard
+/// Rust [`std::Hash::hash`] implementations (and automatically
+/// generated ones) satisfy this requirement for values of the same
+/// type.
 impl std::hash::Hasher for Hasher<'_> {
     #[inline(always)]
     fn finish(&self) -> u64 {
@@ -346,6 +369,8 @@ impl std::hash::Hasher for Hasher<'_> {
 
 /// [`Hasher`]s compute the same hash value for a given sequence of
 /// bytes, regardless of the number of bytes in each `write` call.
+/// This makes it possible to compute a hash by calling a
+/// serialisation function.
 ///
 /// Call [`Hasher::digest`] to find the hash value for the
 /// concatenation of all the bytes written to the [`Hasher`].
@@ -425,6 +450,12 @@ impl<'params> From<&'params Params> for Fingerprinter<'params> {
 /// whole 128-bit [`Fingerprint`], which can be obtained with
 /// [`Fingerprinter::digest`] after passing the [`Fingerprinter`] to
 /// [`std::hash::Hash::hash`].
+///
+/// UMASH's collision probability bounds only hold if different
+/// `object`s feed different byte streams to the hasher.  The standard
+/// Rust [`std::Hash::hash`] implementations (and automatically
+/// generated ones) satisfy this requirement for values of the same
+/// type.
 impl std::hash::Hasher for Fingerprinter<'_> {
     /// Finishing a `Fingerprinter` can only return half of the
     /// 128-bit fingerprint (the primary [`Fingerprint::hash`] value),
@@ -444,7 +475,8 @@ impl std::hash::Hasher for Fingerprinter<'_> {
 
 /// [`Fingerprinter`]s compute the same fingerprint for a given
 /// sequence of bytes, regardless of the number of bytes in each
-/// `write` call.
+/// `write` call.  This makes it possible to compute a fingerprint
+/// by calling a serialisation function.
 ///
 /// Call [`Fingerprinter::digest`] to find the fingerprint value for
 /// the concatenation of all the bytes written to the
