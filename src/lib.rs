@@ -185,7 +185,7 @@ impl Params {
         let mut key_vec = [0u8; 32];
         let to_copy = key.len().min(key_vec.len());
 
-        (&mut key_vec[..to_copy]).copy_from_slice(key);
+        key_vec[..to_copy].copy_from_slice(key);
         unsafe {
             ffi::umash_params_derive(&mut params.0, bits, key_vec.as_ptr() as *const _);
         }
